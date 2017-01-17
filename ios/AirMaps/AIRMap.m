@@ -15,6 +15,8 @@
 #import "AIRMapPolyline.h"
 #import "AIRMapPolygon.h"
 #import "AIRMapCircle.h"
+#import <QuartzCore/QuartzCore.h>
+#import "AIRMapUrlTile.h"
 
 const CLLocationDegrees AIRMapDefaultSpan = 0.005;
 const NSTimeInterval AIRMapRegionChangeObserveInterval = 0.1;
@@ -28,6 +30,16 @@ const CGFloat AIRMapZoomBoundBuffer = 0.01;
 
 @end
 
+@interface AIRMap ()
+
+@property (nonatomic, strong) UIActivityIndicatorView *activityIndicatorView;
+@property (nonatomic, assign) NSNumber *shouldZoomEnabled;
+@property (nonatomic, assign) NSNumber *shouldScrollEnabled;
+
+- (void)updateScrollEnabled;
+- (void)updateZoomEnabled;
+
+@end
 
 @implementation AIRMap
 {
@@ -76,22 +88,30 @@ const CGFloat AIRMapZoomBoundBuffer = 0.01;
     [_regionChangeObserveTimer invalidate];
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wobjc-missing-super-calls"
 - (void)insertReactSubview:(id<RCTComponent>)subview atIndex:(NSInteger)atIndex {
     // Our desired API is to pass up markers/overlays as children to the mapview component.
     // This is where we intercept them and do the appropriate underlying mapview action.
     if ([subview isKindOfClass:[AIRMapMarker class]]) {
         [self addAnnotation:(id <MKAnnotation>) subview];
     } else if ([subview isKindOfClass:[AIRMapPolyline class]]) {
+        ((AIRMapPolyline *)subview).map = self;
         [self addOverlay:(id<MKOverlay>)subview];
     } else if ([subview isKindOfClass:[AIRMapPolygon class]]) {
         ((AIRMapPolygon *)subview).map = self;
         [self addOverlay:(id<MKOverlay>)subview];
     } else if ([subview isKindOfClass:[AIRMapCircle class]]) {
         [self addOverlay:(id<MKOverlay>)subview];
+    } else if ([subview isKindOfClass:[AIRMapUrlTile class]]) {
+        [self addOverlay:(id<MKOverlay>)subview];
     }
     [_reactSubviews insertObject:(UIView *)subview atIndex:(NSUInteger) atIndex];
 }
+#pragma clang diagnostic pop
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wobjc-missing-super-calls"
 - (void)removeReactSubview:(id<RCTComponent>)subview {
     // similarly, when the children are being removed we have to do the appropriate
     // underlying mapview action here.
@@ -103,13 +123,19 @@ const CGFloat AIRMapZoomBoundBuffer = 0.01;
         [self removeOverlay:(id <MKOverlay>) subview];
     } else if ([subview isKindOfClass:[AIRMapCircle class]]) {
         [self removeOverlay:(id <MKOverlay>) subview];
+    } else if ([subview isKindOfClass:[AIRMapUrlTile class]]) {
+        [self removeOverlay:(id <MKOverlay>) subview];
     }
     [_reactSubviews removeObject:(UIView *)subview];
 }
+#pragma clang diagnostic pop
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wobjc-missing-super-calls"
 - (NSArray<id<RCTComponent>> *)reactSubviews {
-    return _reactSubviews;
+  return _reactSubviews;
 }
+#pragma clang diagnostic pop
 
 #pragma mark Overrides for Callout behavior
 
@@ -171,10 +197,20 @@ const CGFloat AIRMapZoomBoundBuffer = 0.01;
             }
         }
         super.showsUserLocation = showsUserLocation;
+    }
+}
 
-        // If it needs to show user location, force map view centered
-        // on user's current location on user location updates
-        _followUserLocation = showsUserLocation;
+- (void)setFollowsUserLocation:(BOOL)followsUserLocation
+{
+    _followUserLocation = followsUserLocation;
+}
+
+- (void)setHandlePanDrag:(BOOL)handleMapDrag {
+    for (UIGestureRecognizer *recognizer in [self gestureRecognizers]) {
+        if ([recognizer isKindOfClass:[UIPanGestureRecognizer class]]) {
+            recognizer.enabled = handleMapDrag;
+            break;
+        }
     }
 }
 
@@ -202,6 +238,234 @@ const CGFloat AIRMapZoomBoundBuffer = 0.01;
         _initialRegionSet = YES;
         [self setRegion:initialRegion animated:NO];
     }
+}
+
+- (void)setCacheEnabled:(BOOL)cacheEnabled {
+    _cacheEnabled = cacheEnabled;
+    if (self.cacheEnabled && self.cacheImageView.image == nil) {
+        self.loadingView.hidden = NO;
+        [self.activityIndicatorView startAnimating];
+    }
+    else {
+        if (_loadingView != nil) {
+            self.loadingView.hidden = YES;
+        }
+    }
+}
+
+- (void)setLoadingEnabled:(BOOL)loadingEnabled {
+    _loadingEnabled = loadingEnabled;
+    if (!self.hasShownInitialLoading) {
+        self.loadingView.hidden = !self.loadingEnabled;
+    }
+    else {
+        if (_loadingView != nil) {
+            self.loadingView.hidden = YES;
+        }
+    }
+}
+
+- (UIColor *)loadingBackgroundColor {
+    return self.loadingView.backgroundColor;
+}
+
+- (void)setLoadingBackgroundColor:(UIColor *)loadingBackgroundColor {
+    self.loadingView.backgroundColor = loadingBackgroundColor;
+}
+
+- (UIColor *)loadingIndicatorColor {
+    return self.activityIndicatorView.color;
+}
+
+- (void)setLoadingIndicatorColor:(UIColor *)loadingIndicatorColor {
+    self.activityIndicatorView.color = loadingIndicatorColor;
+}
+
+// Include properties of MKMapView which are only available on iOS 9+
+// and check if their selector is available before calling super method.
+
+- (void)setShowsCompass:(BOOL)showsCompass {
+    if ([MKMapView instancesRespondToSelector:@selector(setShowsCompass:)]) {
+        [super setShowsCompass:showsCompass];
+    }
+}
+
+- (BOOL)showsCompass {
+    if ([MKMapView instancesRespondToSelector:@selector(showsCompass)]) {
+        return [super showsCompass];
+    } else {
+        return NO;
+    }
+}
+
+- (void)setShowsScale:(BOOL)showsScale {
+    if ([MKMapView instancesRespondToSelector:@selector(setShowsScale:)]) {
+        [super setShowsScale:showsScale];
+    }
+}
+
+- (BOOL)showsScale {
+    if ([MKMapView instancesRespondToSelector:@selector(showsScale)]) {
+        return [super showsScale];
+    } else {
+        return NO;
+    }
+}
+
+- (void)setShowsTraffic:(BOOL)showsTraffic {
+    if ([MKMapView instancesRespondToSelector:@selector(setShowsTraffic:)]) {
+        [super setShowsTraffic:showsTraffic];
+    }
+}
+
+- (BOOL)showsTraffic {
+    if ([MKMapView instancesRespondToSelector:@selector(showsTraffic)]) {
+        return [super showsTraffic];
+    } else {
+        return NO;
+    }
+}
+
+- (void)setScrollEnabled:(BOOL)scrollEnabled {
+    self.shouldScrollEnabled = [NSNumber numberWithBool:scrollEnabled];
+    [self updateScrollEnabled];
+}
+
+- (void)updateScrollEnabled {
+    if (self.cacheEnabled) {
+        [super setScrollEnabled:NO];
+    }
+    else if (self.shouldScrollEnabled != nil) {
+        [super setScrollEnabled:[self.shouldScrollEnabled boolValue]];
+    }
+}
+
+- (void)setZoomEnabled:(BOOL)zoomEnabled {
+    self.shouldZoomEnabled = [NSNumber numberWithBool:zoomEnabled];
+    [self updateZoomEnabled];
+}
+
+- (void)updateZoomEnabled {
+    if (self.cacheEnabled) {
+        [super setZoomEnabled: NO];
+    }
+    else if (self.shouldZoomEnabled != nil) {
+        [super setZoomEnabled:[self.shouldZoomEnabled boolValue]];
+    }
+}
+
+- (void)cacheViewIfNeeded {
+    if (self.hasShownInitialLoading) {
+        if (!self.cacheEnabled) {
+            if (_cacheImageView != nil) {
+                self.cacheImageView.hidden = YES;
+                self.cacheImageView.image = nil;
+            }
+        }
+        else {
+            self.cacheImageView.image = nil;
+            self.cacheImageView.hidden = YES;
+
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.01 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                self.cacheImageView.image = nil;
+                self.cacheImageView.hidden = YES;
+                UIGraphicsBeginImageContextWithOptions(self.bounds.size, self.opaque, 0.0);
+                [self.layer renderInContext:UIGraphicsGetCurrentContext()];
+                UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+                UIGraphicsEndImageContext();
+
+                self.cacheImageView.image = image;
+                self.cacheImageView.hidden = NO;
+            });
+        }
+
+        [self updateScrollEnabled];
+        [self updateZoomEnabled];
+        [self updateLegalLabelInsets];
+    }
+}
+
+- (void)updateLegalLabelInsets {
+    if (_legalLabel) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            CGRect frame = _legalLabel.frame;
+            if (_legalLabelInsets.left) {
+                frame.origin.x = _legalLabelInsets.left;
+            } else if (_legalLabelInsets.right) {
+                frame.origin.x = self.frame.size.width - _legalLabelInsets.right - frame.size.width;
+            }
+            if (_legalLabelInsets.top) {
+                frame.origin.y = _legalLabelInsets.top;
+            } else if (_legalLabelInsets.bottom) {
+                frame.origin.y = self.frame.size.height - _legalLabelInsets.bottom - frame.size.height;
+            }
+            _legalLabel.frame = frame;
+        });
+    }
+}
+
+
+- (void)setLegalLabelInsets:(UIEdgeInsets)legalLabelInsets {
+  _legalLabelInsets = legalLabelInsets;
+  [self updateLegalLabelInsets];
+}
+
+- (void)beginLoading {
+    if ((!self.hasShownInitialLoading && self.loadingEnabled) || (self.cacheEnabled && self.cacheImageView.image == nil)) {
+        self.loadingView.hidden = NO;
+        [self.activityIndicatorView startAnimating];
+    }
+    else {
+        if (_loadingView != nil) {
+            self.loadingView.hidden = YES;
+        }
+    }
+}
+
+- (void)finishLoading {
+    self.hasShownInitialLoading = YES;
+    if (_loadingView != nil) {
+        self.loadingView.hidden = YES;
+    }
+    [self cacheViewIfNeeded];
+}
+
+- (UIActivityIndicatorView *)activityIndicatorView {
+    if (_activityIndicatorView == nil) {
+        _activityIndicatorView = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleGray];
+        _activityIndicatorView.center = self.loadingView.center;
+        _activityIndicatorView.autoresizingMask = UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin | UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
+        _activityIndicatorView.color = [UIColor colorWithRed:96.f/255.f green:96.f/255.f blue:96.f/255.f alpha:1.f]; // defaults to #606060
+    }
+    [self.loadingView addSubview:_activityIndicatorView];
+    return _activityIndicatorView;
+}
+
+- (UIView *)loadingView {
+    if (_loadingView == nil) {
+        _loadingView = [[UIView alloc] initWithFrame:self.bounds];
+        _loadingView.autoresizingMask = UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+        _loadingView.backgroundColor = [UIColor whiteColor]; // defaults to #FFFFFF
+        [self addSubview:_loadingView];
+        _loadingView.hidden = NO;
+    }
+    return _loadingView;
+}
+
+- (UIImageView *)cacheImageView {
+    if (_cacheImageView == nil) {
+        _cacheImageView = [[UIImageView alloc] initWithFrame:self.bounds];
+        _cacheImageView.contentMode = UIViewContentModeCenter;
+        _cacheImageView.autoresizingMask = UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+        [self addSubview:self.cacheImageView];
+        _cacheImageView.hidden = YES;
+    }
+    return _cacheImageView;
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    [self cacheViewIfNeeded];
 }
 
 @end

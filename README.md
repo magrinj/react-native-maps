@@ -1,4 +1,4 @@
-# react-native-maps
+# react-native-maps [![npm version](https://img.shields.io/npm/v/react-native-maps.svg?style=flat)](https://www.npmjs.com/package/react-native-maps)
 
 React Native Map components for iOS + Android
 
@@ -6,13 +6,35 @@ React Native Map components for iOS + Android
 
 See [Installation Instructions](docs/installation.md).
 
+See [Setup Instructions for the Included Example Project](docs/examples-setup.md).
+
 ## Compatibility
 
-Due to the rapid changes being made in the React Native ecosystem, we are not officially going to 
-support this module on anything but the latest version of React Native. With that said, we will do 
-our best to stay compatible with older versions as much that is practical, and the peer dependency 
-of this requirement is set to `"react-native": "*"` explicitly for this reason. If you are using 
+Due to the rapid changes being made in the React Native ecosystem, we are not officially going to
+support this module on anything but the latest version of React Native. With that said, we will do
+our best to stay compatible with older versions as much that is practical, and the peer dependency
+of this requirement is set to `"react-native": "*"` explicitly for this reason. If you are using
 an older version of React Native with this module though, some features may be buggy.
+
+### Note about React requires
+
+Since react-native 0.25.0, `React` should be required from `node_modules`.
+React Native versions from 0.18 should be working out of the box, for lower
+versions you should add `react` as a dependency in your `package.json`.
+
+## Component API
+
+[`<MapView />` Component API](docs/mapview.md)
+
+[`<MapView.Marker />` Component API](docs/marker.md)
+
+[`<MapView.Callout />` Component API](docs/callout.md)
+
+[`<MapView.Polygon />` Component API](docs/polygon.md)
+
+[`<MapView.Polyline />` Component API](docs/polyline.md)
+
+[`<MapView.Circle />` Component API](docs/circle.md)
 
 ## General Usage
 
@@ -31,8 +53,9 @@ declaratively controlling features on the map.
 
 ### Rendering a Map with an initial region
 
+## MapView
 ```jsx
-  <MapView 
+  <MapView
     initialRegion={{
       latitude: 37.78825,
       longitude: -122.4324,
@@ -47,10 +70,12 @@ declaratively controlling features on the map.
 ```jsx
 getInitialState() {
   return {
-    latitude: 37.78825,
-    longitude: -122.4324,
-    latitudeDelta: 0.0922,
-    longitudeDelta: 0.0421,
+    region: {
+      latitude: 37.78825,
+      longitude: -122.4324,
+      latitudeDelta: 0.0922,
+      longitudeDelta: 0.0421,
+    },
   };
 }
 
@@ -60,7 +85,7 @@ onRegionChange(region) {
 
 render() {
   return (
-    <MapView 
+    <MapView
       region={this.state.region}
       onRegionChange={this.onRegionChange}
     />
@@ -71,12 +96,12 @@ render() {
 ### Rendering a list of markers on a map
 
 ```jsx
-<MapView 
+<MapView
   region={this.state.region}
   onRegionChange={this.onRegionChange}
 >
   {this.state.markers.map(marker => (
-    <MapView.Marker 
+    <MapView.Marker
       coordinate={marker.latlng}
       title={marker.title}
       description={marker.description}
@@ -96,7 +121,7 @@ render() {
 ### Rendering a Marker with a custom image
 
 ```jsx
-<MapView.Marker 
+<MapView.Marker
   coordinate={marker.latlng}
   image={require('../assets/pin.png')}
 />
@@ -124,6 +149,47 @@ render() {
 </MapView>
 ```
 
+### Using a custom Tile Overlay
+
+```jsx
+<MapView 
+  region={this.state.region}
+  onRegionChange={this.onRegionChange}
+>
+  <MapView.UrlTile
+   /**
+   * The url template of the tile server. The patterns {x} {y} {z} will be replaced at runtime
+   * For example, http://c.tile.openstreetmap.org/{z}/{x}/{y}.png
+   */
+    urlTemplate={this.state.urlTemplate}
+  />
+</MapView>
+```
+
+For Android: add the following line in your AndroidManifest.xml
+```xml
+<uses-permission android:name="android.permission.INTERNET" />
+```
+For IOS: configure [App Transport Security](https://developer.apple.com/library/content/documentation/General/Reference/InfoPlistKeyReference/Articles/CocoaKeys.html#//apple_ref/doc/uid/TP40009251-SW33) in your app
+
+### Customizing the map style
+
+Create the json object, or download a generated one from the [google style generator](https://mapstyle.withgoogle.com/).
+
+```jsx
+// The generated json object
+mapStyle = [ ... ]
+
+render() {
+  return (
+    <MapView
+      region={this.state.region}
+      onRegionChange={this.onRegionChange}
+      customMapStyle={mapStyle}
+    />
+  );
+}
+```
 
 ## Examples
 
@@ -145,11 +211,16 @@ This example displays some of them in a log as a demonstration.
 
 ### Programmatically Changing Region
 
-One can change the mapview's position using refs and component methods, or by passing in an updated 
-`region` prop.  The component methods will allow one to animate to a given position like the native 
+One can change the mapview's position using refs and component methods, or by passing in an updated
+`region` prop.  The component methods will allow one to animate to a given position like the native
 API could.
 
 ![](http://i.giphy.com/3o6UB7poyB6YJ0KPWU.gif) ![](http://i.giphy.com/xT77Yc4wK3pzZusEbm.gif)
+
+
+### Changing the style of the map
+
+![](http://i.imgur.com/a9WqCL6.png)
 
 
 
@@ -169,7 +240,7 @@ Further, Marker views can use the animated API to enhance the effect.
 
 ![](http://i.giphy.com/xT77XMw9IwS6QAv0nC.gif) ![](http://i.giphy.com/3o6UBdGQdM1GmVoIdq.gif)
 
-Issue: Since android needs to render its marker views as a bitmap, the animations APIs may not be 
+Issue: Since android needs to render its marker views as a bitmap, the animations APIs may not be
 compatible with the Marker views. Not sure if this can be worked around yet or not.
 
 Markers' coordinates can also be animated, as shown in this example:
@@ -204,7 +275,7 @@ color of the default marker by using the `pinColor` prop.
 
 ### Custom Callouts
 
-Callouts to markers can be completely arbitrary react views, similar to markers.  As a result, they 
+Callouts to markers can be completely arbitrary react views, similar to markers.  As a result, they
 can be interacted with like any other view.
 
 Additionally, you can fall back to the standard behavior of just having a title/description through
@@ -231,41 +302,22 @@ Markers are draggable, and emit continuous drag events to update other UI during
 
 ![](http://i.giphy.com/l2JImnZxdv1WbpQfC.gif) ![](http://i.giphy.com/l2JIhv4Jx6Ugx1EGI.gif)
 
+### Lite Mode ( Android )
 
-## Component API
+Enable lite mode on Android with `liteMode` prop. Ideal when having multiple maps in a View or ScrollView.
 
-[`<MapView />` Component API](docs/mapview.md)
-
-[`<MapView.Marker />` Component API](docs/marker.md)
-
-[`<MapView.Callout />` Component API](docs/callout.md)
-
-[`<MapView.Polygon />` Component API](docs/polygon.md)
-
-[`<MapView.Polyline />` Component API](docs/polyline.md)
-
-[`<MapView.Circle />` Component API](docs/circle.md)
-
-
-
-## Using with the Animated API
-
-The API of this Map has been built with the intention of it being able to utilize the [Animated API](https://facebook.github.io/react-native/docs/animated.html).
-
-In order to get this to work, you will need to modify the `AnimatedImplementation.js` file in the
-source of react-native with [this one](https://gist.github.com/lelandrichardson/c0d938e02301f9294465).
-
-Ideally this will be possible in the near future without this modification.
+![](http://i.giphy.com/qZ2lAf18s89na.gif)
 
 ### Animated Region
 
-The MapView can accept an `Animated.Region` value as its `region` prop. This allows you to utilize
-the Animated API to control the map's center and zoom.
+The MapView can accept an `MapView.AnimatedRegion` value as its `region` prop. This allows you to utilize the Animated API to control the map's center and zoom.
 
 ```jsx
+import MapView from 'react-native-maps';
+
 getInitialState() {
   return {
-    region: new Animated.Region({
+    region: new MapView.AnimatedRegion({
       latitude: LATITUDE,
       longitude: LONGITUDE,
       latitudeDelta: LATITUDE_DELTA,
@@ -290,16 +342,25 @@ render() {
 
 ### Animated Marker Position
 
-Markers can also accept an `Animated.Region` value as a coordinate.
+Markers can also accept an `AnimatedRegion` value as a coordinate.
 
 ```jsx
 getInitialState() {
   return {
-    coordinate: new Animated.Region({
+    coordinate: new MapView.AnimatedRegion({
       latitude: LATITUDE,
       longitude: LONGITUDE,
     }),
   };
+}
+
+componentWillReceiveProps(nextProps) {
+  if (this.props.coordinate !== nextProps.coordinate) {
+    this.state.coordinate.timing({
+      ...nextProps.coordinate,
+      duration: 500
+    }).start();
+  }
 }
 
 render() {
@@ -311,5 +372,120 @@ render() {
 }
 ```
 
+### Take Snapshot of map
+
+```jsx
+getInitialState() {
+  return {
+    coordinate: {
+      latitude: LATITUDE,
+      longitude: LONGITUDE,
+    },
+  };
+}
+
+takeSnapshot () {
+  // 'takeSnapshot' takes a config object with the
+  // following options
+  const snapshot = this.refs.map.takeSnapshot({
+    width: 300,      // optional, when omitted the view-width is used
+    height: 300,     // optional, when omitted the view-height is used
+    region: {..},    // iOS only, optional region to render
+    format: 'png',   // image formats: 'png', 'jpg' (default: 'png')
+    quality: 0.8,    // image quality: 0..1 (only relevant for jpg, default: 1)
+    result: 'file'   // result types: 'file', 'base64' (default: 'file')
+  });
+  snapshot.then((uri) => {
+    this.setState({ mapSnapshot: uri });
+  });
+}
+
+render() {
+  return (
+    <View>
+      <MapView initialRegion={...} ref="map">
+        <MapView.Marker coordinate={this.state.coordinate} />
+      </MapView>
+      <Image source={{ uri: this.state.mapSnapshot.uri }} />
+      <TouchableOpacity onPress={this.takeSnapshot}>
+        Take Snapshot
+      </TouchableOpacity>
+    </View>
+  );
+}
+```
+
+### Zoom to Specified Markers
+
+Pass an array of marker identifiers to have the map re-focus.
+
+![](http://i.giphy.com/3o7qEbOQnO0yoXqKJ2.gif) ![](http://i.giphy.com/l41YdrQZ7m6Dz4h0c.gif)
+
+### Zoom to Specified Coordinates
+
+Pass an array of coordinates to focus a map region on said coordinates.
+
+![](https://cloud.githubusercontent.com/assets/1627824/18609960/da5d9e06-7cdc-11e6-811e-34e255093df9.gif)
+
+### Troubleshooting
+
+#### My map is blank
+
+* Make sure that you have [properly installed](docs/installation.md) react-native-maps.
+* Check in the logs if there is more informations about the issue.
+* Try setting the style of the MapView to an absolute position with top, left, right and bottom values set.
+
+```javascript
+const styles = StyleSheet.create({
+  map: {
+    ...StyleSheet.absoluteFillObject,
+  },
+});
+```
+
+```jsx
+<MapView
+  style={styles.map}
+  // other props
+/>
+```
+
+#### Inputs don't focus
+
+* When inputs don't focus or elements don't respond to tap, look at the order of the view hierarchy, sometimes the issue could be due to ordering of rendered components, prefer putting MapView as the first component.
+
+Bad:
+
+```jsx
+<View>
+  <TextInput/>
+  <MapView/>
+</View>
+```
+
+Good:
+
+```jsx
+<View>
+  <MapView/>
+  <TextInput/>
+</View>
+```
 
 
+License
+--------
+
+     Copyright (c) 2015 Leland Richardson
+
+     Licensed under the The MIT License (MIT) (the "License");
+     you may not use this file except in compliance with the License.
+     You may obtain a copy of the License at
+
+        https://raw.githubusercontent.com/airbnb/react-native-maps/master/LICENSE
+
+     Unless required by applicable law or agreed to in writing, software
+     distributed under the License is distributed on an "AS IS" BASIS,
+     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+     See the License for the specific language governing permissions and
+     limitations under the License.

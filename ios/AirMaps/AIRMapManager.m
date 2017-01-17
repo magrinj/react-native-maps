@@ -24,6 +24,8 @@
 #import "AIRMapPolygon.h"
 #import "AIRMapCircle.h"
 #import "SMCalloutView.h"
+#import "AIRMapUrlTile.h"
+#import "AIRMapSnapshot.h"
 
 #import <MapKit/MapKit.h>
 
@@ -46,17 +48,25 @@ RCT_EXPORT_MODULE()
     // MKMapView doesn't report tap events, so we attach gesture recognizers to it
     UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleMapTap:)];
     UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleMapLongPress:)];
+    UIPanGestureRecognizer *drag = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleMapDrag:)];
+    [drag setMinimumNumberOfTouches:1];
+    [drag setMaximumNumberOfTouches:1];
     // setting this to NO allows the parent MapView to continue receiving marker selection events
     tap.cancelsTouchesInView = NO;
     longPress.cancelsTouchesInView = NO;
 
+    // disable drag by default
+    drag.enabled = NO;
+
     [map addGestureRecognizer:tap];
     [map addGestureRecognizer:longPress];
+    [map addGestureRecognizer:drag];
 
     return map;
 }
 
 RCT_EXPORT_VIEW_PROPERTY(showsUserLocation, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(followsUserLocation, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(showsPointsOfInterest, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(showsBuildings, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(showsCompass, BOOL)
@@ -65,11 +75,18 @@ RCT_EXPORT_VIEW_PROPERTY(showsTraffic, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(zoomEnabled, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(rotateEnabled, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(scrollEnabled, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(pitchEnabled, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(cacheEnabled, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(loadingEnabled, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(loadingBackgroundColor, UIColor)
+RCT_EXPORT_VIEW_PROPERTY(loadingIndicatorColor, UIColor)
+RCT_EXPORT_VIEW_PROPERTY(handlePanDrag, BOOL)
 RCT_EXPORT_VIEW_PROPERTY(maxDelta, CGFloat)
 RCT_EXPORT_VIEW_PROPERTY(minDelta, CGFloat)
 RCT_EXPORT_VIEW_PROPERTY(legalLabelInsets, UIEdgeInsets)
 RCT_EXPORT_VIEW_PROPERTY(mapType, MKMapType)
 RCT_EXPORT_VIEW_PROPERTY(onChange, RCTBubblingEventBlock)
+RCT_EXPORT_VIEW_PROPERTY(onPanDrag, RCTBubblingEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(onPress, RCTBubblingEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(onLongPress, RCTBubblingEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(onMarkerPress, RCTDirectEventBlock)
@@ -141,32 +158,289 @@ RCT_EXPORT_METHOD(fitToElements:(nonnull NSNumber *)reactTag
         } else {
             AIRMap *mapView = (AIRMap *)view;
             // TODO(lmr): we potentially want to include overlays here... and could concat the two arrays together.
-            [mapView showAnnotations:mapView.annotations animated:animated];
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.1 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                [mapView showAnnotations:mapView.annotations animated:animated];
+            });
         }
     }];
 }
 
+RCT_EXPORT_METHOD(fitToSuppliedMarkers:(nonnull NSNumber *)reactTag
+                  markers:(nonnull NSArray *)markers
+                  animated:(BOOL)animated)
+{
+    [self.bridge.uiManager addUIBlock:^(__unused RCTUIManager *uiManager, NSDictionary<NSNumber *, UIView *> *viewRegistry) {
+        id view = viewRegistry[reactTag];
+        if (![view isKindOfClass:[AIRMap class]]) {
+            RCTLogError(@"Invalid view returned from registry, expecting AIRMap, got: %@", view);
+        } else {
+            AIRMap *mapView = (AIRMap *)view;
+            // TODO(lmr): we potentially want to include overlays here... and could concat the two arrays together.
+            // id annotations = mapView.annotations;
+
+            NSPredicate *filterMarkers = [NSPredicate predicateWithBlock:^BOOL(id evaluatedObject, NSDictionary *bindings) {
+                AIRMapMarker *marker = (AIRMapMarker *)evaluatedObject;
+                return [marker isKindOfClass:[AIRMapMarker class]] && [markers containsObject:marker.identifier];
+            }];
+
+            NSArray *filteredMarkers = [mapView.annotations filteredArrayUsingPredicate:filterMarkers];
+
+            [mapView showAnnotations:filteredMarkers animated:animated];
+        }
+    }];
+}
+
+RCT_EXPORT_METHOD(fitToCoordinates:(nonnull NSNumber *)reactTag
+                  coordinates:(nonnull NSArray<AIRMapCoordinate *> *)coordinates
+                  edgePadding:(nonnull NSDictionary *)edgePadding
+                  animated:(BOOL)animated)
+{
+    [self.bridge.uiManager addUIBlock:^(__unused RCTUIManager *uiManager, NSDictionary<NSNumber *, UIView *> *viewRegistry) {
+        id view = viewRegistry[reactTag];
+        if (![view isKindOfClass:[AIRMap class]]) {
+            RCTLogError(@"Invalid view returned from registry, expecting AIRMap, got: %@", view);
+        } else {
+            AIRMap *mapView = (AIRMap *)view;
+
+            // Create Polyline with coordinates
+            CLLocationCoordinate2D coords[coordinates.count];
+            for(int i = 0; i < coordinates.count; i++)
+            {
+                coords[i] = coordinates[i].coordinate;
+            }
+            MKPolyline *polyline = [MKPolyline polylineWithCoordinates:coords count:coordinates.count];
+
+            // Set Map viewport
+            CGFloat top = [RCTConvert CGFloat:edgePadding[@"top"]];
+            CGFloat right = [RCTConvert CGFloat:edgePadding[@"right"]];
+            CGFloat bottom = [RCTConvert CGFloat:edgePadding[@"bottom"]];
+            CGFloat left = [RCTConvert CGFloat:edgePadding[@"left"]];
+
+            [mapView setVisibleMapRect:[polyline boundingMapRect] edgePadding:UIEdgeInsetsMake(top, left, bottom, right) animated:animated];
+
+        }
+    }];
+}
+
+RCT_EXPORT_METHOD(takeSnapshot:(nonnull NSNumber *)reactTag
+        width:(nonnull NSNumber *)width
+        height:(nonnull NSNumber *)height
+        region:(MKCoordinateRegion)region
+        format:(nonnull NSString *)format
+        quality:(nonnull NSNumber *)quality
+        result:(nonnull NSString *)result
+        callback:(RCTResponseSenderBlock)callback)
+{
+    [self.bridge.uiManager addUIBlock:^(__unused RCTUIManager *uiManager, NSDictionary<NSNumber *, UIView *> *viewRegistry) {
+        id view = viewRegistry[reactTag];
+        if (![view isKindOfClass:[AIRMap class]]) {
+            RCTLogError(@"Invalid view returned from registry, expecting AIRMap, got: %@", view);
+        } else {
+            AIRMap *mapView = (AIRMap *)view;
+            MKMapSnapshotOptions *options = [[MKMapSnapshotOptions alloc] init];
+
+            options.region = (region.center.latitude && region.center.longitude) ? region : mapView.region;
+            options.size = CGSizeMake(
+              ([width floatValue] == 0) ? mapView.bounds.size.width : [width floatValue],
+              ([height floatValue] == 0) ? mapView.bounds.size.height : [height floatValue]
+            );
+            options.scale = [[UIScreen mainScreen] scale];
+
+            MKMapSnapshotter *snapshotter = [[MKMapSnapshotter alloc] initWithOptions:options];
+
+            [self takeMapSnapshot:mapView
+                snapshotter:snapshotter
+                format:format
+                quality:quality.floatValue
+                result:result
+                callback:callback];
+        }
+    }];
+}
+
+#pragma mark Take Snapshot
+- (void)takeMapSnapshot:(AIRMap *)mapView
+        snapshotter:(MKMapSnapshotter *) snapshotter
+        format:(NSString *)format
+        quality:(CGFloat) quality
+        result:(NSString *)result
+        callback:(RCTResponseSenderBlock) callback {
+    NSTimeInterval timeStamp = [[NSDate date] timeIntervalSince1970];
+    NSString *pathComponent = [NSString stringWithFormat:@"Documents/snapshot-%.20lf.%@", timeStamp, format];
+    NSString *filePath = [NSHomeDirectory() stringByAppendingPathComponent: pathComponent];
+
+    [snapshotter startWithQueue:dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0)
+              completionHandler:^(MKMapSnapshot *snapshot, NSError *error) {
+                  if (error) {
+                      callback(@[error]);
+                      return;
+                  }
+                  MKAnnotationView *pin = [[MKPinAnnotationView alloc] initWithAnnotation:nil reuseIdentifier:nil];
+
+                  UIImage *image = snapshot.image;
+                  UIGraphicsBeginImageContextWithOptions(image.size, YES, image.scale);
+                  {
+                      [image drawAtPoint:CGPointMake(0.0f, 0.0f)];
+
+                      CGRect rect = CGRectMake(0.0f, 0.0f, image.size.width, image.size.height);
+
+                      for (id <MKAnnotation> annotation in mapView.annotations) {
+                          CGPoint point = [snapshot pointForCoordinate:annotation.coordinate];
+
+                          MKAnnotationView* anView = [mapView viewForAnnotation: annotation];
+
+                          if (anView){
+                              pin = anView;
+                          }
+
+                          if (CGRectContainsPoint(rect, point)) {
+                              point.x = point.x + pin.centerOffset.x - (pin.bounds.size.width / 2.0f);
+                              point.y = point.y + pin.centerOffset.y - (pin.bounds.size.height / 2.0f);
+                              [pin.image drawAtPoint:point];
+                          }
+                      }
+
+                      for (id <AIRMapSnapshot> overlay in mapView.overlays) {
+                          if ([overlay respondsToSelector:@selector(drawToSnapshot:context:)]) {
+                                  [overlay drawToSnapshot:snapshot context:UIGraphicsGetCurrentContext()];
+                          }
+                      }
+
+                      UIImage *compositeImage = UIGraphicsGetImageFromCurrentImageContext();
+
+                      NSData *data;
+                      if ([format isEqualToString:@"png"]) {                      
+                          data = UIImagePNGRepresentation(compositeImage);
+                      }
+                      else if([format isEqualToString:@"jpg"]) {
+                          data = UIImageJPEGRepresentation(compositeImage, quality);
+                      }
+
+                      if ([result isEqualToString:@"file"]) {
+                          [data writeToFile:filePath atomically:YES];
+                          callback(@[[NSNull null], filePath]);
+                      }
+                      else if ([result isEqualToString:@"base64"]) {
+                          callback(@[[NSNull null], [data base64EncodedStringWithOptions:NSDataBase64EncodingEndLineWithCarriageReturn]]);
+                      }
+                      else if ([result isEqualToString:@"legacy"]) {
+
+                          // In the initial (iOS only) implementation of takeSnapshot,
+                          // both the uri and the base64 encoded string were returned.
+                          // Returning both is rarely useful and in fact causes a 
+                          // performance penalty when only the file URI is desired.
+                          // In that case the base64 encoded string was always marshalled
+                          // over the JS-bridge (which is quite slow).
+                          // A new more flexible API was created to cover this.
+                          // This code should be removed in a future release when the
+                          // old API is fully deprecated.
+                          [data writeToFile:filePath atomically:YES];
+                          NSDictionary *snapshotData = @{
+                                                         @"uri": filePath,
+                                                         @"data": [data base64EncodedStringWithOptions:NSDataBase64EncodingEndLineWithCarriageReturn]
+                                                         };
+                          callback(@[[NSNull null], snapshotData]);
+                      }
+                  }
+                  UIGraphicsEndImageContext();
+              }];
+}
+
 #pragma mark Gesture Recognizer Handlers
 
+#define MAX_DISTANCE_PX 10.0f
 - (void)handleMapTap:(UITapGestureRecognizer *)recognizer {
     AIRMap *map = (AIRMap *)recognizer.view;
+
+    CGPoint tapPoint = [recognizer locationInView:map];
+    CLLocationCoordinate2D tapCoordinate = [map convertPoint:tapPoint toCoordinateFromView:map];
+    MKMapPoint mapPoint = MKMapPointForCoordinate(tapCoordinate);
+    CGPoint mapPointAsCGP = CGPointMake(mapPoint.x, mapPoint.y);
+
+    double maxMeters = [self metersFromPixel:MAX_DISTANCE_PX atPoint:tapPoint forMap:map];
+    float nearestDistance = MAXFLOAT;
+    AIRMapPolyline *nearestPolyline = nil;
+
+    for (id<MKOverlay> overlay in map.overlays) {
+        if([overlay isKindOfClass:[AIRMapPolygon class]]){
+            AIRMapPolygon *polygon = (AIRMapPolygon*) overlay;
+            if (polygon.onPress) {
+                CGMutablePathRef mpr = CGPathCreateMutable();
+
+                for(int i = 0; i < polygon.coordinates.count; i++) {
+                    AIRMapCoordinate *c = polygon.coordinates[i];
+                    MKMapPoint mp = MKMapPointForCoordinate(c.coordinate);
+                    if (i == 0) {
+                        CGPathMoveToPoint(mpr, NULL, mp.x, mp.y);
+                    } else {
+                        CGPathAddLineToPoint(mpr, NULL, mp.x, mp.y);
+                    }
+                }
+
+                if (CGPathContainsPoint(mpr, NULL, mapPointAsCGP, FALSE)) {
+                    id event = @{
+                                @"action": @"polygon-press",
+                                };
+                    polygon.onPress(event);
+                }
+
+                CGPathRelease(mpr);
+            }
+        }
+
+        if([overlay isKindOfClass:[AIRMapPolyline class]]){
+            AIRMapPolyline *polyline = (AIRMapPolyline*) overlay;
+            if (polyline.onPress) {
+                float distance = [self distanceOfPoint:MKMapPointForCoordinate(tapCoordinate)
+                                          toPoly:polyline];
+                if (distance < nearestDistance) {
+                    nearestDistance = distance;
+                    nearestPolyline = polyline;
+                }
+            }
+        }
+    }
+
+    if (nearestDistance <= maxMeters) {
+        id event = @{
+                   @"action": @"polyline-press",
+                   };
+        nearestPolyline.onPress(event);
+    }
+
     if (!map.onPress) return;
-
-    CGPoint touchPoint = [recognizer locationInView:map];
-    CLLocationCoordinate2D coord = [map convertPoint:touchPoint toCoordinateFromView:map];
-
     map.onPress(@{
             @"coordinate": @{
-                    @"latitude": @(coord.latitude),
-                    @"longitude": @(coord.longitude),
+                    @"latitude": @(tapCoordinate.latitude),
+                    @"longitude": @(tapCoordinate.longitude),
             },
             @"position": @{
-                    @"x": @(touchPoint.x),
-                    @"y": @(touchPoint.y),
+                    @"x": @(tapPoint.x),
+                    @"y": @(tapPoint.y),
             },
     });
 
 }
+
+- (void)handleMapDrag:(UIPanGestureRecognizer*)recognizer {
+    AIRMap *map = (AIRMap *)recognizer.view;
+    if (!map.onPanDrag) return;
+
+    CGPoint touchPoint = [recognizer locationInView:map];
+    CLLocationCoordinate2D coord = [map convertPoint:touchPoint toCoordinateFromView:map];
+    map.onPanDrag(@{
+                  @"coordinate": @{
+                          @"latitude": @(coord.latitude),
+                          @"longitude": @(coord.longitude),
+                          },
+                  @"position": @{
+                          @"x": @(touchPoint.x),
+                          @"y": @(touchPoint.y),
+                          },
+                  });
+
+}
+
 
 - (void)handleMapLongPress:(UITapGestureRecognizer *)recognizer {
 
@@ -202,6 +476,8 @@ RCT_EXPORT_METHOD(fitToElements:(nonnull NSNumber *)reactTag
         return ((AIRMapPolygon *)overlay).renderer;
     } else if ([overlay isKindOfClass:[AIRMapCircle class]]) {
         return ((AIRMapCircle *)overlay).renderer;
+    } else if ([overlay isKindOfClass:[AIRMapUrlTile class]]) {
+        return ((AIRMapUrlTile *)overlay).renderer;
     } else {
         return nil;
     }
@@ -246,7 +522,7 @@ static int kDragCenterContext;
     AIRMapMarker *marker = (AIRMapMarker *)view.annotation;
 
     BOOL isPinView = [view isKindOfClass:[MKPinAnnotationView class]];
-    
+
     id event = @{
                  @"id": marker.identifier ?: @"unknown",
                  @"coordinate": @{
@@ -254,7 +530,7 @@ static int kDragCenterContext;
                          @"longitude": @(marker.coordinate.longitude)
                          }
                  };
-    
+
     if (newState == MKAnnotationViewDragStateEnding || newState == MKAnnotationViewDragStateCanceling) {
         if (!isPinView) {
             [view setDragState:MKAnnotationViewDragStateNone animated:NO];
@@ -323,7 +599,7 @@ static int kDragCenterContext;
         [mapView setRegion:region animated:YES];
 
         // Move to user location only for the first time it loads up.
-        mapView.followUserLocation = NO;
+        // mapView.followUserLocation = NO;
     }
 }
 
@@ -360,7 +636,14 @@ static int kDragCenterContext;
 - (void)mapViewWillStartRenderingMap:(AIRMap *)mapView
 {
     mapView.hasStartedRendering = YES;
+    [mapView beginLoading];
     [self _emitRegionChangeEvent:mapView continuous:NO];
+}
+
+- (void)mapViewDidFinishRenderingMap:(AIRMap *)mapView fullyRendered:(BOOL)fullyRendered
+{
+    [mapView finishLoading];
+    [mapView cacheViewIfNeeded];
 }
 
 #pragma mark Private
@@ -418,6 +701,55 @@ static int kDragCenterContext;
                 }
         });
     }
+}
+
+/** Returns the distance of |pt| to |poly| in meters
+ *
+ *
+ */
+- (double)distanceOfPoint:(MKMapPoint)pt toPoly:(AIRMapPolyline *)poly
+{
+    double distance = MAXFLOAT;
+    for (int n = 0; n < poly.coordinates.count - 1; n++) {
+
+        MKMapPoint ptA = MKMapPointForCoordinate(poly.coordinates[n].coordinate);
+        MKMapPoint ptB = MKMapPointForCoordinate(poly.coordinates[n + 1].coordinate);
+
+        double xDelta = ptB.x - ptA.x;
+        double yDelta = ptB.y - ptA.y;
+
+        if (xDelta == 0.0 && yDelta == 0.0) {
+            continue;
+        }
+
+        double u = ((pt.x - ptA.x) * xDelta + (pt.y - ptA.y) * yDelta) / (xDelta * xDelta + yDelta * yDelta);
+        MKMapPoint ptClosest;
+        if (u < 0.0) {
+            ptClosest = ptA;
+        }
+        else if (u > 1.0) {
+            ptClosest = ptB;
+        }
+        else {
+            ptClosest = MKMapPointMake(ptA.x + u * xDelta, ptA.y + u * yDelta);
+        }
+
+        distance = MIN(distance, MKMetersBetweenMapPoints(ptClosest, pt));
+    }
+
+    return distance;
+}
+
+
+/** Converts |px| to meters at location |pt| */
+- (double)metersFromPixel:(NSUInteger)px atPoint:(CGPoint)pt forMap:(AIRMap *)mapView
+{
+    CGPoint ptB = CGPointMake(pt.x + px, pt.y);
+
+    CLLocationCoordinate2D coordA = [mapView convertPoint:pt toCoordinateFromView:mapView];
+    CLLocationCoordinate2D coordB = [mapView convertPoint:ptB toCoordinateFromView:mapView];
+
+    return MKMetersBetweenMapPoints(MKMapPointForCoordinate(coordA), MKMapPointForCoordinate(coordB));
 }
 
 @end

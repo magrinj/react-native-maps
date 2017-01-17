@@ -25,6 +25,7 @@ project.xcworkspace
 # Android/IJ
 #
 .idea
+*.iml
 .gradle
 local.properties
 
@@ -32,3 +33,5 @@ local.properties
 #
 node_modules/
 npm-debug.log
+Pods/
+AirMapsExplorer.xcworkspace/

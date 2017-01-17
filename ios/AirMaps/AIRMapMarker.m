@@ -15,7 +15,7 @@
 #import "RCTUtils.h"
 #import "RCTImageLoader.h"
 
-@implementation EmptyCalloutBackgroundView
+@implementation AIREmptyCalloutBackgroundView
 @end
 
 @implementation AIRMapMarker {
@@ -26,7 +26,9 @@
 
 - (void)reactSetFrame:(CGRect)frame
 {
-    CGRect bounds = {CGPointZero, frame.size};
+    // Make sure we use the image size when available
+    CGSize size = self.image ? self.image.size : frame.size;
+    CGRect bounds = {CGPointZero, size};
 
     // The MapView is basically in charge of figuring out the center position of the marker view. If the view changed in
     // height though, we need to compensate in such a way that the bottom of the marker stays at the same spot on the
@@ -51,7 +53,7 @@
     if ([subview isKindOfClass:[AIRMapCallout class]]) {
         self.calloutView = (AIRMapCallout *)subview;
     } else {
-        [super insertReactSubview:subview atIndex:atIndex];
+        [super insertReactSubview:(UIView *)subview atIndex:atIndex];
     }
 }
 
@@ -59,7 +61,7 @@
     if ([subview isKindOfClass:[AIRMapCallout class]] && self.calloutView == subview) {
         self.calloutView = nil;
     } else {
-        [super removeReactSubview:subview];
+        [super removeReactSubview:(UIView *)subview];
     }
 }
 
@@ -73,6 +75,7 @@
         }
 
         _pinView.draggable = self.draggable;
+        _pinView.layer.zPosition = self.zIndex;
 
         // TODO(lmr): Looks like this API was introduces in iOS 8. We may want to handle differently for earlier
         // versions. Right now it's just leaving it with the default color. People needing the colors are free to
@@ -87,6 +90,7 @@
         // if it has a non-null image, it means we want to render a custom marker with the image.
         // In either case, we want to return the AIRMapMarker since it is both an MKAnnotation and an
         // MKAnnotationView all at the same time.
+        self.layer.zPosition = self.zIndex;
         return self;
     }
 }
@@ -108,7 +112,7 @@
         if (self.calloutView.tooltip) {
             // if tooltip is true, then the user wants their react view to be the "tooltip" as wwell, so we set
             // the background view to something empty/transparent
-            calloutView.backgroundView = [EmptyCalloutBackgroundView new];
+            calloutView.backgroundView = [AIREmptyCalloutBackgroundView new];
         } else {
             // the default tooltip look is wanted, and the user is just filling the content with their react subviews.
             // as a result, we use the default "masked" background view.
@@ -196,7 +200,7 @@
 
 - (BOOL)shouldUsePinView
 {
-    return self.subviews.count == 0 && !self.imageSrc;
+    return self.reactSubviews.count == 0 && !self.imageSrc;
 }
 
 - (void)setImageSrc:(NSString *)imageSrc
@@ -207,21 +211,37 @@
         _reloadImageCancellationBlock();
         _reloadImageCancellationBlock = nil;
     }
-    _reloadImageCancellationBlock = [_bridge.imageLoader loadImageWithTag:_imageSrc
-                                                                     size:self.bounds.size
-                                                                    scale:RCTScreenScale()
-                                                               resizeMode:UIViewContentModeCenter
-                                                            progressBlock:nil
-                                                          completionBlock:^(NSError *error, UIImage *image) {
-                                                              if (error) {
-                                                                  // TODO(lmr): do something with the error?
-                                                                  NSLog(@"%@", error);
-                                                              }
-                                                              dispatch_async(dispatch_get_main_queue(), ^{
-                                                                self.image = image;
-                                                              });
-                                                          }];
+    _reloadImageCancellationBlock = [_bridge.imageLoader loadImageWithURLRequest:[RCTConvert NSURLRequest:_imageSrc]
+                                                                            size:self.bounds.size
+                                                                           scale:RCTScreenScale()
+                                                                         clipped:YES
+                                                                      resizeMode:RCTResizeModeCenter
+                                                                   progressBlock:nil
+                                                                partialLoadBlock:nil
+                                                                 completionBlock:^(NSError *error, UIImage *image) {
+                                                                     if (error) {
+                                                                         // TODO(lmr): do something with the error?
+                                                                         NSLog(@"%@", error);
+                                                                     }
+                                                                     dispatch_async(dispatch_get_main_queue(), ^{
+                                                                         self.image = image;
+                                                                     });
+                                                                 }];
 }
 
+- (void)setPinColor:(UIColor *)pinColor
+{
+    _pinColor = pinColor;
+    
+    if ([_pinView respondsToSelector:@selector(setPinTintColor:)]) {
+        _pinView.pinTintColor = _pinColor;
+    }
+}
+
+- (void)setZIndex:(NSInteger)zIndex
+{
+    _zIndex = zIndex;
+    self.layer.zPosition = _zIndex;
+}
 
 @end

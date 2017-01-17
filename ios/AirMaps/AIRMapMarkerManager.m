@@ -33,7 +33,7 @@ RCT_EXPORT_MODULE()
     return marker;
 }
 
-//RCT_EXPORT_VIEW_PROPERTY(identifier, NSString)
+RCT_EXPORT_VIEW_PROPERTY(identifier, NSString)
 //RCT_EXPORT_VIEW_PROPERTY(reuseIdentifier, NSString)
 RCT_EXPORT_VIEW_PROPERTY(title, NSString)
 RCT_REMAP_VIEW_PROPERTY(description, subtitle, NSString)
@@ -43,6 +43,7 @@ RCT_EXPORT_VIEW_PROPERTY(calloutOffset, CGPoint)
 RCT_REMAP_VIEW_PROPERTY(image, imageSrc, NSString)
 RCT_EXPORT_VIEW_PROPERTY(pinColor, UIColor)
 RCT_EXPORT_VIEW_PROPERTY(draggable, BOOL)
+RCT_EXPORT_VIEW_PROPERTY(zIndex, NSInteger)
 
 RCT_EXPORT_VIEW_PROPERTY(onPress, RCTBubblingEventBlock)
 RCT_EXPORT_VIEW_PROPERTY(onSelect, RCTDirectEventBlock)
@@ -102,6 +103,11 @@ RCT_EXPORT_METHOD(hideCallout:(nonnull NSNumber *)reactTag)
     // the actual marker got clicked
     id event = @{
             @"action": @"marker-press",
+            @"id": marker.identifier ?: @"unknown",
+            @"coordinate": @{
+                    @"latitude": @(marker.coordinate.latitude),
+                    @"longitude": @(marker.coordinate.longitude)
+            }
     };
 
     if (marker.onPress) marker.onPress(event);
